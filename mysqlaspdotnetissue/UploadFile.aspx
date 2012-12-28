@@ -18,7 +18,7 @@
                         msg = $.parseJSON(msg.d);
                         $('#message_area').prepend('<div style="padding:5px;margin:2px;"><span style="padding:5px;width:50px;color:red">' + getTimeStamp() + '</span><span>' + msg.message + '</span></div>');
                         sessionid = msg.sessionid;
-                        interval = setInterval(trackNow, 5000);
+                        interval = setInterval(trackNow, 60000);
                     },
                     failure: function (msg) {
                         alert(msg);

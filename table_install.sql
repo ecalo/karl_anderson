@@ -352,7 +352,7 @@ CREATE TABLE `event_log` (
 DROP TABLE IF EXISTS `event_flag`;
 
 CREATE TABLE `event_flag` (
-  `event_name` VARCHAR(32) NOT NULL,
+  `event_name` VARCHAR(64) NOT NULL,
   `status` BIT(1) NOT NULL DEFAULT b'0',
   `last_update` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`event_name`)

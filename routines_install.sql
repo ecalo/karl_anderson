@@ -123,7 +123,7 @@ BEGIN
 
    DELETE FROM stg_vendor_address_clean WHERE session_id = sessionid;
    COMMIT;
-
+   SET innodb_lock_wait_timeout = 120;
    IF theSource = 'vendor_all' THEN
      INSERT INTO stg_vendor_address_clean (
             custacctnumber,
@@ -183,7 +183,6 @@ BEGIN
                AND VA.session_id = VAA.session_id
       WHERE VA.session_id = sessionid         
       ORDER BY VA.sys, VA.vend_num;
-      
    ELSEIF theSource = 'vendor_file' THEN
    
      INSERT INTO stg_vendor_address_clean (
@@ -246,8 +245,17 @@ BEGIN
 
    INSERT INTO event_log(session_id, status_update, activity)
    VALUES (sessionid, 'Data import successful.', 'ON IMPORT TO STAGING TABLE');
+   COMMIT;   
 
    SET success = TRUE;
+
+   IF theSource = 'vendor_all' THEN
+      DELETE FROM vendor_all WHERE session_id = sessionid;
+      DELETE FROM vendor_all_addr WHERE session_id = sessionid;
+   ELSEIF theSource = 'vendor_file' THEN
+      DELETE FROM vendor_file WHERE session_id = sessionid;
+   END IF;   
+   COMMIT;   
    
 END $$
 
@@ -276,24 +284,31 @@ BEGIN
   
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET no_more = 1 ;
   
+  DROP TEMPORARY TABLE IF EXISTS `temp_vendor_names`;
+  CREATE TEMPORARY TABLE temp_vendor_names (id INT PRIMARY KEY NOT NULL, clean_vendor_name VARCHAR(100))ENGINE=MEMORY CHARSET=utf8;
+  INSERT INTO temp_vendor_names
+  SELECT tic_rowid, clean_vend_name
+    FROM stg_vendor_address_clean
+   WHERE session_id = sessionid
+     AND clean_vend_name IS NOT NULL
+     AND TRIM(clean_vend_name) <> '';
   OPEN my_cursor ;
   
   FETCH my_cursor INTO theKeyword, theReplacement ;
   
   REPEAT
     UPDATE 
-      stg_vendor_address_clean 
+      temp_vendor_names 
     SET
-      clean_vend_name = TRIM(
+      clean_vendor_name = TRIM(
         REPLACE(
-          CONCAT(' ', clean_vend_name, ' '),
+          CONCAT(' ', clean_vendor_name, ' '),
           theKeyword,
           theReplacement
         )
       ) 
-    WHERE session_id = sessionid
-      AND INSTR(
-        CONCAT(' ', clean_vend_name, ' '),
+    WHERE INSTR(
+        CONCAT(' ', clean_vendor_name, ' '),
         theKeyword
       ) > 0 ;
     
@@ -307,14 +322,20 @@ BEGIN
   
   REPEAT
     
-    UPDATE stg_vendor_address_clean 
-       SET clean_vend_name = REPLACE(clean_vend_name, '  ', ' ') 
-     WHERE session_id = sessionid;
+    UPDATE temp_vendor_names 
+       SET clean_vendor_name = REPLACE(clean_vendor_name, '  ', ' ');
       
     SET theres_more = ROW_COUNT() ;
     
     UNTIL theres_more = 0 
   END REPEAT ;
+  
+  UPDATE stg_vendor_address_clean
+   INNER JOIN temp_vendor_names
+      ON stg_vendor_address_clean.tic_rowid = temp_vendor_names.id
+     SET clean_vend_name = temp_vendor_names.clean_vendor_name; 
+
+  COMMIT;  
   
 END$$
 
@@ -342,6 +363,15 @@ BEGIN
   WHERE maximum_pass = 2 ;
   
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET no_more = 1 ;
+  DROP TEMPORARY TABLE IF EXISTS `temp_vendor_names`;
+  CREATE TEMPORARY TABLE temp_vendor_names (id INT PRIMARY KEY NOT NULL, clean_vendor_name VARCHAR(100), first_pass VARCHAR(100))ENGINE=MEMORY CHARSET=utf8;
+  INSERT INTO temp_vendor_names
+  SELECT tic_rowid, clean_vend_name, clean_vend_name_first_pass
+    FROM stg_vendor_address_clean
+   WHERE session_id = sessionid
+     AND clean_vend_name IS NOT NULL
+     AND clean_vend_name_first_pass IS NOT NULL
+     AND TRIM(clean_vend_name) <> '';
   
   OPEN my_cursor ;
   
@@ -351,26 +381,24 @@ BEGIN
   REPEAT
     
     UPDATE 
-      stg_vendor_address_clean 
+      temp_vendor_names 
     SET
-      clean_vend_name = TRIM(
+      clean_vendor_name = TRIM(
         REPLACE(
-          CONCAT(' ', clean_vend_name, ' '),
+          CONCAT(' ', clean_vendor_name, ' '),
           theKeyword,
           theReplacement
         )
       ) 
-    WHERE session_id = sessionid
-      AND clean_vend_name_first_pass IS NOT NULL -- This makes sure that it doesn't clean it down to the same weak one word name as the first pass
-      AND clean_vend_name_first_pass <> TRIM(
+    WHERE first_pass <> TRIM( 
         REPLACE(
-          CONCAT(' ',clean_vend_name,' '),
+          CONCAT(' ',clean_vendor_name,' '),
           theKeyword,
           theReplacement
         )
-      ) 
+      ) -- This makes sure that it doesn't clean it down to the same weak one word name as the first pass
       AND INSTR(
-        CONCAT(' ', clean_vend_name, ' '),
+        CONCAT(' ', clean_vendor_name, ' '),
         theKeyword
       ) > 0 ;
     
@@ -385,15 +413,21 @@ BEGIN
   
   REPEAT
     
-    UPDATE stg_vendor_address_clean 
-       SET clean_vend_name = REPLACE(clean_vend_name, '  ', ' ') 
-     WHERE session_id = sessionid;
+    UPDATE temp_vendor_names 
+       SET clean_vendor_name = REPLACE(clean_vendor_name, '  ', ' ');
       
     SET theres_more = ROW_COUNT() ;
     
     UNTIL theres_more = 0 
   END REPEAT ;
   
+  UPDATE stg_vendor_address_clean
+   INNER JOIN temp_vendor_names
+      ON stg_vendor_address_clean.tic_rowid = temp_vendor_names.id
+     SET clean_vend_name = temp_vendor_names.clean_vendor_name; 
+
+  COMMIT;  
+    
 END$$
 
 DROP PROCEDURE IF EXISTS  `udp_get_keywords`$$
@@ -613,7 +647,263 @@ BEGIN
  
 END$$
 
+DROP PROCEDURE IF EXISTS  `udp_data_sanitation`$$
 
+CREATE PROCEDURE `udp_data_sanitation`(sessionid VARCHAR(32), OUT success BOOLEAN)
+body:
+BEGIN
+  DECLARE successful BOOLEAN DEFAULT FALSE;
+  DECLARE theSessionId VARCHAR(32);
+
+  SET theSessionId = sessionid;
+  SET success = FALSE;
+   
+  IF COALESCE(sessionid, '') = '' THEN
+     LEAVE body;
+  END IF;
+
+    UPDATE vendor_queue
+       SET state = 'CLEANING UP VENDOR NAMES (STAGE 1)'
+     WHERE session_id = sessionid;
+    
+    INSERT INTO event_log(session_id, status_update, activity)
+    VALUES (sessionid, 'Starting to sanitize vendor names. (Stage 1)', 'ON CLEANING UP VENDOR NAMES');
+    COMMIT;
+
+	CALL udp_clean_vendor_name(theSessionId);
+
+	UPDATE stg_vendor_address_clean 
+	   SET clean_vend_name = clean_vend_name2 
+	 WHERE session_id = sessionid 
+	   AND clean_vend_name IS NOT NULL 
+	   AND vendor_name IS NOT NULL
+	   AND LENGTH(clean_vend_name) <= 2 ;
+	   	   
+	-- 1800 Pull Keywords
+
+    UPDATE vendor_queue
+       SET state = 'EXTRACTING KEYWORDS FROM VENDOR NAMES (STAGE 1)'
+     WHERE session_id = sessionid;
+
+    INSERT INTO event_log(session_id, status_update, activity)
+    VALUES (sessionid, 'Finished sanitizing vendor names. (Stage 1)', 'ON CLEANING UP VENDOR NAMES'),
+           (sessionid, 'Starting to extract keywords from vendor names. (Stage 1)', 'ON EXTRACTING KEYWORDS FROM VENDOR NAMES');
+    COMMIT;
+	
+	CALL udp_get_keywords(theSessionId);
+
+
+	-- 1910 Reset Weak One-Word Keyword Names
+	UPDATE stg_vendor_address_clean AS vac
+	   SET clean_vend_name = vendor_name,
+	       clean_vend_name_first_pass = COALESCE(clean_vend_name_first_pass, clean_vend_name) 
+	 WHERE session_id = sessionid 
+	   AND clean_vend_name IS NOT NULL
+	   AND INSTR(clean_vend_name, ' ') <= 1 
+	   AND clean_vend_name <> vendor_name 
+	   AND EXISTS (
+		   SELECT '1'
+			 FROM vendor_weak_one_keyword_names AS weak
+			WHERE vac.`clean_vend_name` = weak.`keyword`
+		   ) ;
+		   
+
+    UPDATE vendor_queue
+       SET state = 'CLEANING UP VENDOR NAMES (STAGE 2)'
+     WHERE session_id = sessionid;
+
+    INSERT INTO event_log(session_id, status_update, activity)
+    VALUES (sessionid, 'Finished extracting keywords from vendor names. (Stage 1)', 'ON EXTRACTING KEYWORDS FROM VENDOR NAMES'),
+           (sessionid, 'Starting to sanitize vendor names. (Stage 2)', 'ON CLEANING UP VENDOR NAMES');
+    COMMIT;
+
+	CALL udp_clean_vendor_name2(theSessionId);
+	COMMIT;
+
+	UPDATE stg_vendor_address_clean 
+	   SET clean_vend_name = clean_vend_name2
+	 WHERE session_id = sessionid 
+	   AND clean_vend_name_first_pass IS NOT NULL 
+	   AND clean_vend_name IS NOT NULL
+	   AND LENGTH(TRIM(clean_vend_name)) <= 2 ;	
+	   
+	UPDATE stg_vendor_address_clean 
+	   SET clean_vend_name = NULL 
+	 WHERE session_id = sessionid 
+	   AND (LENGTH(TRIM(clean_vend_name)) <= 1 
+	   AND clean_vend_name IS NOT NULL
+    -- AND INSTR(vendor_name, 'DO NOT USE') > 1
+	    OR  TRIM(clean_vend_name) = '');
+
+	UPDATE stg_vendor_address_clean 
+	   SET clean_vend_name = REPLACE(TRIM(clean_vend_name), '.', '') 
+	 WHERE session_id = sessionid 
+	   AND clean_vend_name = vendor_name 
+	   AND clean_vend_name IS NOT NULL;
+
+	DELETE 
+	  FROM vendor_address_clean_keywords 
+	 WHERE EXISTS (
+	        SELECT '1' 
+	          FROM stg_vendor_address_clean vac
+	         WHERE vac.session_id = sessionid 
+	           AND clean_vend_name_first_pass IS NOT NULL 
+	           AND vendor_address_clean_keywords.stg_vac_tic_rowid = vac.tic_rowid
+	       );
+	       
+
+    UPDATE vendor_queue
+       SET state = 'EXTRACTING KEYWORDS FROM VENDOR NAMES (STAGE 2)'
+     WHERE session_id = sessionid;
+
+    INSERT INTO event_log(session_id, status_update, activity)
+    VALUES (sessionid, 'Finished sanitizing vendor names. (Stage 2)', 'ON CLEANING UP VENDOR NAMES'),
+           (sessionid, 'Starting to extract keywords from vendor names. (Stage 2)', 'ON EXTRACTING KEYWORDS FROM VENDOR NAMES');
+    COMMIT;
+	
+	CALL udp_get_keywords2(theSessionId);
+	
+    UPDATE vendor_queue
+       SET state = 'CLEANING UP VENDOR RECORDS (STAGE 3)'
+     WHERE session_id = sessionid;
+
+    INSERT INTO event_log(session_id, status_update, activity)
+    VALUES (sessionid, 'Finished extracting keywords from vendor names. (Stage 2)', 'ON EXTRACTING KEYWORDS FROM VENDOR NAMES'),
+           (sessionid, 'Starting to sanitize vendor records. (Stage 3)', 'ON CLEANING UP VENDOR RECORDS');
+    COMMIT;
+
+	UPDATE stg_vendor_address_clean
+	   SET type_po_box = 'Y'
+	 WHERE session_id = sessionid
+	   AND (po_box_num IS NOT NULL OR
+	       INSTR(full_address,'PO BOX')>0 OR
+           INSTR(full_address,'P.O.')>0 OR
+           INSTR(full_address,' PO ')>0) ;
+
+	UPDATE stg_vendor_address_clean 
+	   SET tax_id_clean = NULL 
+	 WHERE session_id = sessionid 
+	   AND tax_id_clean IS NOT NULL 
+	   AND (TRIM(tax_id_clean) IN (
+	         '000000000',
+	         '111111111',
+	         '999999999') 
+	        OR LENGTH(TRIM(tax_id_clean)) <> 9
+	       ) ;
+
+	-- set all vendors with a count of greater than 25 distinct clean vendor names as a bogus number and set to null
+	CALL udp_update_vac_101(theSessionId, 25);
+
+	UPDATE stg_vendor_address_clean 
+	   SET type_comp_tax_id = 'Individual' 
+	 WHERE session_id = sessionid 
+	   AND tax_id IS NOT NULL
+	   AND SUBSTRING(tax_id, 4, 1) = '-' ;
+
+	UPDATE stg_vendor_address_clean 
+	   SET type_comp_tax_id = 'Corporation' 
+	 WHERE session_id = sessionid 
+	   AND tax_id IS NOT NULL
+	   AND SUBSTRING(tax_id, 3, 1) = '-' ;
+
+	UPDATE stg_vendor_address_clean 
+	   SET type_comp_tax_id = 'No Tax ID Provided' 
+	 WHERE session_id = sessionid 
+	   AND tax_id_clean IS NULL ;
+	   
+	UPDATE stg_vendor_address_clean 
+	   SET type_comp_tax_id = 'Not able to categorize' 
+	 WHERE session_id = sessionid 
+	   AND type_comp_tax_id IS NULL ; 
+
+           
+	CALL udp_update_vac_102(theSessionId, 25);
+
+	UPDATE stg_vendor_address_clean 
+	   SET clean_vend_name = NULL 
+	 WHERE session_id = sessionid 
+	   AND clean_vend_name IS NOT NULL 
+	   AND vendor_name IS NOT NULL
+	   AND (TRIM(clean_vend_name) = '' OR
+	        LENGTH(TRIM(clean_vend_name)) <= 1 OR
+	        INSTR(vendor_name, 'DO NOT USE') > 1);
+
+    UPDATE vendor_queue
+       SET state = 'TRANSFERRING RECORDS INTO ACTUAL TABLE'
+     WHERE session_id = sessionid;
+
+    INSERT INTO event_log(session_id, status_update, activity)
+    VALUES (sessionid, 'Finished sanitizing vendor records. (Stage 3)', 'ON CLEANING UP VENDOR RECORDS'),
+           (sessionid, 'Start transferring data into actual table.', 'ON DATA TRANSFER INTO ACTUAL TABLE');
+    COMMIT;
+
+     INSERT INTO vendor_address_clean (
+            custacctnumber,
+            sys,
+            vend_num,
+            vend_site_id,
+            vendor_type,
+            vendor_name,
+            address_line_1,
+            address_line_2,
+            address_line_3,
+            address_line_4,
+            po_box_num,
+            city,
+            state,
+            zip,
+            country,
+            tax_id,
+            phone,
+            contact_email,
+            last_activity_date,
+            clean_vend_name,
+            phone_10_digit,
+            zip_5_char,
+            spend,
+            session_id,
+            stg_tic_rowid
+            ) 
+     SELECT      
+            custacctnumber,
+            sys,
+            vend_num,
+            vend_site_id,
+            vendor_type,
+            vendor_name,
+            address_line_1,
+            address_line_2,
+            address_line_3,
+            address_line_4,
+            po_box_num,
+            city,
+            state,
+            zip,
+            country,
+            tax_id,
+            phone,
+            contact_email,
+            last_activity_date,
+            clean_vend_name,
+            phone_10_digit,
+            zip_5_char,
+            spend,
+            session_id,
+            tic_rowid
+       FROM stg_vendor_address_clean
+      WHERE session_id = sessionid;      
+
+     UPDATE vendor_queue
+        SET state = 'FINISHED DATA TRANSFER INTO ACTUAL TABLE'
+      WHERE session_id = sessionid;
+      
+     INSERT INTO event_log(session_id, status_update, activity)
+     VALUES (sessionid, 'Finished transferring data into actual table.', 'ON DATA TRANSFER INTO ACTUAL TABLE');
+     COMMIT;  
+     SET success = TRUE;
+
+END$$
+/*
 DROP PROCEDURE IF EXISTS  `udp_import_wrapper`$$
 
 CREATE PROCEDURE `udp_import_wrapper`(sessionid VARCHAR(32), OUT success BOOLEAN)
@@ -630,24 +920,6 @@ BEGIN
      LEAVE body;
   END IF;
 
-  -- Make sure the session id given is valid. This is already handled in the data_import_event.
-/*
-  SET session_status = (SELECT state from vendor_queue where session_id = sessionid LIMIT 0,1);
-  IF COALESCE(session_status, '') <> 'PENDING' THEN
-     INSERT INTO event_log(session_id, status_update, activity)
-     VALUES (sessionid, 'Error while attempting to import data into staging table.', 'ON IMPORT PROCESS');
-     COMMIT;
-     leave body;
-  end IF;   
-  
-  UPDATE vendor_queue
-     SET state = 'DATA IMPORT INTO STAGING TABLE'
-   WHERE session_id = sessionid;  
-  
-  INSERT INTO event_log(session_id, status_update, activity)
-  VALUES (sessionid, 'Starting to import vendor data into staging table.', 'ON IMPORT PROCESS');
-  COMMIT;
-*/  
   CALL udp_import_to_stg_vac(theSessionId, successful);
   
   IF successful THEN
@@ -892,6 +1164,7 @@ BEGIN
      SET success = TRUE;
   END IF;
 END$$
+*/
 
 /***********************************************************************************************
  * Routine that checks invalid data from vendor_address_clean
@@ -1508,6 +1781,7 @@ BEGIN
   COMMIT;
       
 END $$
+/*
 DROP PROCEDURE IF EXISTS udp_data_import_event$$
 CREATE
     PROCEDURE `udp_data_import_event`()
@@ -1552,6 +1826,94 @@ CREATE
 	    END IF;
 
     END$$
+*/
+
+DROP PROCEDURE IF EXISTS `udp_data_import_event`$$
+
+CREATE PROCEDURE `udp_data_import_event`()
+BEGIN
+       DECLARE theSessionID VARCHAR(32);
+       DECLARE successful BOOLEAN;
+
+       SET theSessionID = (SELECT session_id FROM vendor_queue WHERE LOWER(state) = 'pending' LIMIT 0, 1); 
+
+       IF COALESCE(theSessionID,'') <> '' THEN
+          UPDATE vendor_queue 
+             SET state = 'QUEUED'
+           WHERE session_id = theSessionID ;
+          COMMIT;
+          CALL udp_import_to_stg_vac(theSessionID, successful);
+          IF successful THEN
+             UPDATE vendor_queue 
+                SET state = 'LOADED'
+              WHERE session_id = theSessionID ;
+          ELSE
+             UPDATE vendor_queue 
+                SET state = 'FAILED',
+                    process_ends_on = NOW()
+              WHERE session_id = theSessionID ;
+             INSERT INTO event_log(session_id, status_update, activity) 
+             VALUES (theSessionID, 'An error has occured while importing records into staging table.', 'ON IMPORT TO STAGING TABLE');
+          END IF;
+          COMMIT;
+       END IF;
+END$$
+
+DROP PROCEDURE IF EXISTS `data_sanitation_and_grouping_event`$$
+
+CREATE PROCEDURE `data_sanitation_and_grouping_event`()
+BEGIN
+	    DECLARE donotproceed BIT;
+	    DECLARE theSessionID VARCHAR(32);
+	    DECLARE successful BOOLEAN;
+	    DROP TEMPORARY TABLE IF EXISTS temp_sessions_for_data_import;
+	    CREATE TEMPORARY TABLE temp_sessions_for_data_import(session_id VARCHAR(32) NOT NULL, source VARCHAR(32) NOT NULL) ENGINE=MEMORY CHARSET=utf8;
+	    
+	    SET donotproceed = (SELECT `status` FROM event_flag WHERE LOWER(event_name) = 'data_sanitation_and_grouping_event');
+	    IF donotproceed = b'0' THEN
+	       UPDATE event_flag
+	          SET `status` = b'1'
+	        WHERE LOWER(event_name) = 'data_sanitation_and_grouping_event';
+	       COMMIT;  
+
+           INSERT INTO temp_sessions_for_data_import(session_id, source)
+           SELECT DISTINCT session_id, source 
+             FROM vendor_queue
+            WHERE LOWER(state) = 'loaded';
+           
+           SET theSessionID = (SELECT session_id FROM temp_sessions_for_data_import LIMIT 0, 1); 
+           WHILE COALESCE(theSessionID,'') <> '' DO
+               CALL udp_data_sanitation(theSessionID, successful);
+               IF successful THEN
+                  CALL udp_vendor_data_checks(theSessionID);
+                  CALL udp_group_vendor_dups(theSessionID);
+                  CALL udp_relate_the_vendors(TRUE, TRUE, theSessionID);
+                  DELETE FROM stg_vendor_address_clean
+                   WHERE session_id = theSessionID;
+                  UPDATE vendor_queue 
+                     SET state = 'FAILED',
+                         process_ends_on = NOW()
+                   WHERE session_id = theSessionID
+                     AND state <> 'SUCCESSFUL';
+               ELSE
+                  UPDATE vendor_queue 
+                     SET state = 'FAILED',
+                         process_ends_on = NOW()
+                   WHERE session_id = theSessionID;
+                  INSERT INTO event_log(session_id, status_update, activity)
+                  VALUES (theSessionID, 'Data sanitation failed.', 'ON DATA SANITATION');            
+               END IF;
+               DELETE FROM temp_sessions_for_data_import WHERE session_id = theSessionID;
+               SET theSessionID = (SELECT session_id FROM temp_sessions_for_data_import LIMIT 0, 1); 
+           END WHILE;
+            
+	       UPDATE event_flag
+	          SET `status` = b'0'
+	        WHERE LOWER(event_name) = 'data_sanitation_and_grouping_event';
+	       COMMIT;  
+           
+	    END IF;
+END$$
 
 DELIMITER ;
 
