@@ -1,0 +1,203 @@
+<%@ Master Language="VB" EnableTheming="true" CodeFile="MasterPage.master.vb" Inherits="MasterPage" %>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3c.org/TR/1999/REC-html401-19991224/loose.dtd">
+<!-- saved from url=(0047)http://www.technology-insight.com/Services.aspx -->
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head id="Head1" runat="server">
+
+<meta http-equiv ="Page-Enter" content ="blendTrans(Duration=0)"/>
+<meta http-equiv="Page-Exit"content="blendTrans(Duration=0)"/>
+
+    <title>Services - Technology Insight</title>   
+        <link rel="stylesheet" type="text/css" href="css/style.css"/>
+        <link rel="stylesheet" type="text/css" href="css/calendar.css"/>
+
+        <!--[if IE 6]> <script type="text/javascript" src="js/functionality_ie6.js"></script> <![endif]-->
+
+        <!--[if IE 6]>
+        <link rel="stylesheet" type="text/css" href="css/ie6.css"/>
+        <script type="text/javascript" src="js/DD_belatedPNG_0.0.8a.js"></script>
+        <script>
+
+          DD_belatedPNG.fix('.sort, .top_icons a');
+          
+        </script>
+        <![endif]-->
+
+        <!--[if IE 7]>
+        <link rel="stylesheet" type="text/css" href="css/ie7.css"/>
+        <![endif]-->
+        <script type="text/javascript" src="js/jquery.min.js"></script>
+        <script type="text/javascript" src="js/jquery-ui.min.js"></script>
+        <script type="text/javascript" src="js/jquery1.6.1.js"></script>
+        <script type="text/javascript" src="js/jquery-ui-1.8.13.custom.min.js"></script>
+        <script type="text/javascript" src="js/functionality.js"></script>      
+
+
+<%--<script type="text/javascript" src="js/popup.js"></script>--%>
+<script type="text/javascript">
+    function restoremenustate(menuinfo) {
+        var menuinfoarray, i;
+        menuinfoarray = menuinfo.split(',');
+        $(menuinfoarray[0]).addClass('current_page');
+        $(menuinfoarray[0]).closest('ul').show();
+        //$("#main_nav").accordion({ header: "h3" });
+        $("#main_nav").accordion({
+            autoHeight: false,
+            navigation: true,
+            icons: { header: "plus", headerSelected: "minus" },
+            header: 'h3'
+        });
+        if(menuinfoarray[1] == '0')
+            $('#main_nav').accordion('activate', 0);
+        else if (menuinfoarray[1] == '1')
+            $('#main_nav').accordion('activate', 1);
+        else if (menuinfoarray[1] == '2')
+            $('#main_nav').accordion('activate', 2);
+        else if (menuinfoarray[1] == '3')
+            $('#main_nav').accordion('activate', 3);
+        else if (menuinfoarray[1] == '4')
+            $('#main_nav').accordion('activate', 4);
+        else if (menuinfoarray[1] == '5')
+            $('#main_nav').accordion('activate', 5);
+        else if (menuinfoarray[1] == '6')
+            $('#main_nav').accordion('activate', 6);
+        else if (menuinfoarray[1] == '7')
+            $('#main_nav').accordion('activate', 7);
+        else if (menuinfoarray[1] == '8')
+            $('#main_nav').accordion('activate', 8);
+        else if (menuinfoarray[1] == '9')
+            $('#main_nav').accordion('activate', 9);
+        else if (menuinfoarray[1] == '10')
+            $('#main_nav').accordion('activate', 10);
+        else if (menuinfoarray[1] == '11')
+            $('#main_nav').accordion('activate', 11);
+        else if (menuinfoarray[1] == '12')
+            $('#main_nav').accordion('activate', 12);
+        else if (menuinfoarray[1] == '13')
+            $('#main_nav').accordion('activate', 13);
+    }
+    function savemenustate(menu, groupid) {
+        //alert($($($($(menu).parent()[0]).parent()[0]).parent()[0]).attr("class"));
+        $.ajax({
+            type: "POST",
+            url: "default.aspx/setmenu",
+            //data: '{menuitem: "' + this + '"}',
+            data: '{menuitem: "' + $(menu).attr('id') + '",menugroup: "' + groupid + '"}',
+            contentType: "application/json; charset=utf-8",
+            async: false,
+            dataType: "json",
+            success: function(data) { },
+            failure: function(response) {
+                alert(response.d);
+            }
+        });
+    }
+    function showhelp() {
+        window.open('help.aspx');
+    }
+</script>
+</head>
+<body class="" runat="server" id="idBodyTag">
+    <form runat="server" id="form1" enctype="multipart/form-data" method="post">
+
+<%--<asp:UpdatePanel runat="server">
+<ContentTemplate>--%>
+<div id="wrapper">
+    <div id="header">
+
+        <div class="header_left"></div>
+        <div class="header_pattern"></div>
+        <div class="header_right"></div>
+            
+    	<a id="logo" href="Home.aspx"></a>
+    
+    	<div class="logout">
+        
+        	<a href="login.aspx" class="button" title="Logout"><span>Logout</span></a>
+        
+        </div>
+        
+        <h1 class="welcome">
+        
+        	Welcome - <span class="client_name"><asp:Literal runat="server" ID="lblUsername" ></asp:Literal></span>&nbsp;<span class="client_company"><asp:Literal runat="server" ID="lblLoggedInClient"></asp:Literal></span>
+        
+        </h1>
+        
+        <ul class="top_icons">
+        
+        	<li>
+<%--        	    <asp:LinkButton runat="server" ID="btnPrint" class="print" ToolTip="Print"></asp:LinkButton>--%>
+                    <a onclick="return CallPrint();" runat="server" ID="btnPrint" class="print" title="Print"></a>
+        	 </li>
+            <li>
+        	    <asp:LinkButton runat="server" ID="btnExportToExcel" class="excel" ToolTip="Export to Excel"></asp:LinkButton>
+        	 </li>
+            <li>
+            <a href="#" class="help" onclick="showhelpmodal();" title="Report Help"></a>
+        	<%--    <asp:LinkButton runat="server" ID="btnHelp" OnClientClick="alert('1');" class="help"></asp:LinkButton>--%>
+            </li>
+            <li><a href="EmailUs.aspx" class="mail" title="Contact Us"></a></li>
+            <li><a href="#" class="graph" title="Show Charts"></a></li>
+        
+        </ul>
+    
+       
+    </div><!--end header-->
+    
+    <div id="content">
+
+        <div class="content_w"></div>
+        <div class="content_e"></div>
+        
+        <div class="content_center">
+        
+            
+    	<div id="main_nav">
+        
+        	<span class="line_top"></span>
+            <span class="line_bottom"></span>
+                <div runat="server" id="menudiv"></div>
+        </div><!--end main_nav-->
+
+        
+        <div class="main_content">
+<%--            <asp:UpdatePanel ID="UpdatePanel1" runat="server" ChildrenAsTriggers="false" UpdateMode="Conditional">
+            <ContentTemplate>--%>
+                <asp:ContentPlaceHolder ID="ContentPlaceHolder1" runat="server"></asp:ContentPlaceHolder>
+<%--            </ContentTemplate>
+            </asp:UpdatePanel>--%>
+        </div><!--end main_content-->
+        
+        <div class="clear"></div>
+    
+        </div>  <!--end content_center-->  
+    
+    </div><!--end content-->
+    
+
+    <div class="content_bottom">
+        	<div class="content_se"></div>
+	        <div class="content_sw"></div>
+    	    <div class="content_s"></div>
+    </div>
+    <div id="footer">
+    
+    </div><!--end footer-->
+
+</div><!--end wrapper-->
+
+<%--</ContentTemplate>
+</asp:UpdatePanel>--%>
+
+  
+    <div id="overlay"></div>
+<%--        <asp:UpdatePanel ID="UpdatePanel1" runat="server">
+        <ContentTemplate>--%>
+            <asp:ContentPlaceHolder ID="ContentPlaceHolder3" runat="server"></asp:ContentPlaceHolder>        
+<%--        </ContentTemplate>
+        </asp:UpdatePanel>--%>
+        
+    </form>
+
+</body>
+</html>

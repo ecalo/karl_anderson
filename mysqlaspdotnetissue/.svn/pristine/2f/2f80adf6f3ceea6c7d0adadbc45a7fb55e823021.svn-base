@@ -1,0 +1,54 @@
+﻿Imports System.Collections.Generic
+Imports System.Linq
+Imports System.Web
+Imports System.Web.Services
+Imports System.Web.Script.Services
+Imports System.Data.SqlClient
+Imports System.Data
+Partial Class dragtest
+    Inherits System.Web.UI.Page
+
+    <System.Web.Services.WebMethod(EnableSession:=True)> _
+    Public Shared Function SaveCoords(ByVal x As Integer, ByVal y As Integer, ByVal element As String, ByVal userid As Integer) As Integer
+        Dim connect As String = "Server=MyServer;Database=Tests;Trusted_Connection=True;"
+        Dim result As Integer = 0
+        'Using conn As New SqlConnection(connect)
+        '    Dim query As String = "UPDATE Coords SET xPos = @xPos, yPos = @yPos WHERE Element = @Element AND UserID = @UserID"
+        '    Using cmd As New SqlCommand(query, conn)
+        '        cmd.Parameters.AddWithValue("xPos", x)
+        '        cmd.Parameters.AddWithValue("yPos", y)
+        '        cmd.Parameters.AddWithValue("Element", element)
+        '        cmd.Parameters.AddWithValue("UserID", userid)
+        '        conn.Open()
+        '        result = CInt(cmd.ExecuteNonQuery())
+        '    End Using
+        'End Using
+        Return result
+    End Function
+
+    Public Function GetSavedCoords(ByVal userid As Integer) As DataTable
+        Dim dt As New DataTable()
+        Dim connect As String = "Server=MyServer;Database=Tests;Trusted_Connection=True;"
+        Using conn As New SqlConnection(connect)
+            Dim query As String = "SELECT xPos, yPos, Element FROM Coords WHERE UserID = @UserID"
+            Using cmd As New SqlCommand(query, conn)
+                cmd.Parameters.AddWithValue("UserID", userid)
+                Dim da As New SqlDataAdapter(cmd)
+                da.Fill(dt)
+                Return dt
+            End Using
+        End Using
+    End Function
+
+
+    Protected Sub Page_Load(ByVal sender As Object, ByVal e As EventArgs)
+        Dim dt As DataTable = GetSavedCoords(1)
+        For Each row As DataRow In dt.Rows
+            Dim ctl As HtmlControl = DirectCast(Me.FindControl(row("element").ToString()), HtmlControl)
+            If ctl IsNot Nothing Then
+                ctl.Style.Add("left", row("xPos").ToString() & "px")
+                ctl.Style.Add("top", row("yPos").ToString() & "px")
+            End If
+        Next
+    End Sub
+End Class

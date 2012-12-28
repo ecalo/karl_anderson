@@ -1,0 +1,26 @@
+/*IE6 fixes*/
+
+* html #wrapper {
+  width: expression((documentElement.clientWidth <1024) ? "1024px" : "100%" );
+}
+
+
+#main_nav .pane li{ margin-bottom:-3px;}
+
+#main_nav .line_top, #main_nav .line_bottom{ right:-2px;}
+
+.login .content_e{right:0px;}
+
+.grid .grid_top_right{right:0;}
+
+.grid .total_subtotal{ bottom:-8px;}
+
+.grid .subheader .sort{ background-image:url(../images/sort_arrow.jpg);}
+
+.popupbox{ display:block; left:-9999px; position:absolute;}
+
+.popupbox.visible{left:50%;}
+
+#overlay{ background:url(../images/overlay.png); position:absolute;}
+
+.grid_top_left, .grid_top_right{display:none;}

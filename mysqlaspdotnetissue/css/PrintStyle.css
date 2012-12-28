@@ -1,0 +1,18 @@
+@charset "utf-8";
+/* CSS Document */
+
+
+/* CSS Reset*/
+
+.hide_print
+{
+  display: none;
+}
+table th, table td{ border:1px solid #000; font-size:11px;}
+
+a{
+	font-size:11px;
+	text-decoration: none;
+	outline:none;
+	color:#000000;
+}

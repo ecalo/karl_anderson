@@ -338,6 +338,7 @@ CREATE TABLE `vendor_queue` (
 DROP TABLE IF EXISTS `event_log`;
 
 CREATE TABLE `event_log` (
+  `log_id` INT PRIMARY KEY AUTO_INCREMENT NOT NULL,
   `session_id` VARCHAR(32) NOT NULL,
   `status_update` VARCHAR(255) NOT NULL,
   `activity` VARCHAR(64) NOT NULL,
